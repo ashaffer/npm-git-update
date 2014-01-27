@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+
+var npm = require('npm')
+  , pkg = require('package.json');
+
+npm.load(npm.config, function(err) {
+  if(err) throw err;
+
+  var gitPackages = [];
+  for(var name in pkg.dependencies) {
+    var version = pkg.dependencies[name];
+    // XXX Is this heuristic always accurate?
+    if(version.indexOf('/') !== -1)
+      gitPackages.push(name);
+  }
+
+  npm.commands.install(gitPackages, function(err, data) {
+    if(err) throw err;
+    console.log('npm data', data);
+  });
+  npm.on('log', function(msg) {
+    console.log(msg);
+  });
+});
