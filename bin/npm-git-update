@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-
 var npm = require('npm')
-  , pkg = require('package.json');
+  , fs = require('fs');
+
+var pkgStr = fs.readFileSync('package.json')
+  , pkg = JSON.parse(pkgStr);
 
 npm.load(npm.config, function(err) {
   if(err) throw err;
@@ -9,16 +11,17 @@ npm.load(npm.config, function(err) {
   var gitPackages = [];
   for(var name in pkg.dependencies) {
     var version = pkg.dependencies[name];
-    // XXX Is this heuristic always accurate?
+    // This heuristic is necessarily correct (unless npm changes its spec)
+    // because package names are required to be url-safe (so slashes are out)
+    // and the other two options are an actual URL which necessarily includes
+    // a /, or a github-shorthand-url (e.g. visionmedia/express), which also
+    // requires the presence of a /.
     if(version.indexOf('/') !== -1)
-      gitPackages.push(name);
+      gitPackages.push(version);
   }
 
   npm.commands.install(gitPackages, function(err, data) {
     if(err) throw err;
-    console.log('npm data', data);
   });
-  npm.on('log', function(msg) {
-    console.log(msg);
-  });
+  npm.on('log', console.log.bind(console));
 });
