@@ -19,6 +19,10 @@
   "homepage": "https://github.com/ashaffer/npm-git-update",
   "license": "ISC",
   "dependencies": {
-    "npm": "~1.3.25"
+    "async": "^0.9.0",
+    "github-url-to-object": "^1.4.0",
+    "npm": "^1.3.26",
+    "npm-package-arg": "^2.1.2",
+    "semver-extra": "^2.0.0"
   }
 }
