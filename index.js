@@ -103,6 +103,8 @@ function doUpdate(names, basedir, cb) {
                     npm.on('log', console.log.bind(console));
                     if(urls.length > 0) {
                         npm.commands.install(urls, cb);
+                    } else {
+                        cb();
                     }
                 }
             });
