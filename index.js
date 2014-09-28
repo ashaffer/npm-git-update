@@ -74,13 +74,26 @@ function getUpdateUrl(name, version, basedir, cb) {
     });
 }
 
+function getVersion(pkg, name) {
+    if(pkg.dependencies !== undefined) {
+        if(name in pkg.dependencies) {
+            return pkg.dependencies[name];
+        }
+    }
+    if(pkg.devDependencies !== undefined) {
+        if(name in pkg.devDependencies) {
+            return pkg.devDependencies[name];
+        }
+    }
+}
+
 function getUpdateUrls(names, basedir, cb) {
     var pkg = JSON.parse(fs.readFileSync(path.join(basedir, 'package.json'), 'utf8'));
     names = names.filter(function(name) {
-        return canUpdate(pkg.dependencies[name]);
+        return canUpdate(getVersion(pkg, name));
     });
     async.map(names, function(name, cb) {
-        var version = pkg.dependencies[name];
+        var version = getVersion(pkg, name);
         getUpdateUrl(name, version, basedir, cb);
     }, function(err, results) {
         if(err) {
