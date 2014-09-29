@@ -1,6 +1,6 @@
 {
   "name": "npm-git-update",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Simple tool that updates modules not referenced from the npm repository",
   "bin": "bin/npm-git-update",
   "preferGlobal": true,
