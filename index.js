@@ -12,119 +12,153 @@ function getGitTags(repo, cb) {
     var matcher = /[0-9a-fA-F]{40}\s+refs\/tags\/(v?(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))/g;
     var tags = [];
     exec(cmd.join(" "), function (error, stdout, stderr) {
-        var match;
         if (error !== null) {
-            cb(error);
-        } else {
-            while (match = matcher.exec(stdout)) {
-                var tag = match[1];
-                if(tags.indexOf(tag) != -1) continue;
-                tags.push(tag);
-            }
-            cb(null, tags);
+            return cb(error);
         }
+        var match;
+        while (match = matcher.exec(stdout)) {
+            var tag = match[1];
+            if(tags.indexOf(tag) != -1) continue;
+            tags.push(tag);
+        }
+        return cb(null, tags);
     });
 }
 
-function canUpdate(version) {
-    var dep = npa(version);
-    switch(dep.type) {
-        case "github":
-        case "git": 
-        case "remote":
-            return true;
-        default:
-            return false;
-    }
+function asyncReadFile(path, cb) { // path -> content
+    fs.readFile(path, { encoding: 'utf8' }, cb);
 }
 
-function getUpdateUrl(name, version, basedir, cb) {
-    var pkg = JSON.parse(fs.readFileSync(path.join(basedir, 'node_modules', name, 'package.json'), 'utf8'));
-    var url = (pkg.repository.url || version).split("#")[0];
-    var dep = npa(url);
-    var tag_url, install_url;
-    switch(dep.type) {
-        case "github":
-        case "remote":
-            var gho = gh(url);
-            tag_url = "https://github.com/" + gho.user + "/" + gho.repo;
-            install_url = "git://github.com/" + gho.user + "/" + gho.repo;
-            break;
-        case "git": 
-            // parsing abstract git repo url is very complicated
-            // we'll just bet on luck
-            tag_url = url;
-            install_url = url;
-            break;
-        default:
-            cb(new Error("Invalid dependecy type [" + dep.type + "] for `" + name + "`"));
-            return;
+function asyncParseJSON(content, cb) { // content -> pkg
+    try {
+        var pkg = JSON.parse(content);
+    } catch(err) {
+        return cb(err);
     }
-    getGitTags(tag_url, function(err, tags) {
-        if(err) {
-            cb(err);
-        } else {
-            var max = semver.max(tags.filter(semver.valid));
-            if(semver.eq(pkg.version, max)) {
-                cb(null, null);
+    return cb(null, pkg);
+}
+
+function getUpdateUrl(dep, cb) {
+    async.seq(
+        function(cb) {
+            var pkgpath = path.join(dep.basedir, 'node_modules', dep.name, 'package.json');
+            return cb(null, pkgpath);
+        },
+        asyncReadFile,
+        asyncParseJSON,
+        function(pkg, cb) {
+            pkg.repository = pkg.repository || {};
+            pkg.repository.url = pkg.repository.url || dep.spec.split("#")[0];
+            return cb(null, pkg);
+        },
+        function(pkg, cb) {
+            var url = pkg.repository.url;
+            var gho = gh(url) || gh(dep.spec.split("#")[0]);
+            if(gho !== null) {
+                pkg.urls = {
+                    tag: "https://github.com/" + gho.user + "/" + gho.repo,
+                    install: "git://github.com/" + gho.user + "/" + gho.repo
+                };                 
             } else {
-                cb(null, install_url + "#" + max);
+                pkg.urls = {
+                    tag: url,
+                    install: url
+                };
             }
+            return cb(null, pkg);
+        },
+        function(pkg, cb) {
+            getGitTags(pkg.urls.tag, function(err, tags) {
+                if(err) {
+                    return cb(err);
+                }
+                var max = semver.max(tags.filter(semver.valid));
+                if(semver.eq(pkg.version, max)) {
+                    return cb(null, null);
+                } else {
+                    return cb(null, pkg.urls.install + "#" + max);
+                }
+            });  
         }
-    });
-}
-
-function getVersion(pkg, name) {
-    if(pkg.dependencies !== undefined) {
-        if(name in pkg.dependencies) {
-            return pkg.dependencies[name];
-        }
-    }
-    if(pkg.devDependencies !== undefined) {
-        if(name in pkg.devDependencies) {
-            return pkg.devDependencies[name];
-        }
-    }
+    )(cb);
 }
 
 function getUpdateUrls(names, basedir, cb) {
-    var pkg = JSON.parse(fs.readFileSync(path.join(basedir, 'package.json'), 'utf8'));
-    names = names.filter(function(name) {
-        return canUpdate(getVersion(pkg, name));
-    });
-    async.map(names, function(name, cb) {
-        var version = getVersion(pkg, name);
-        getUpdateUrl(name, version, basedir, cb);
-    }, function(err, results) {
-        if(err) {
-            cb(err);
-        } else {
-            cb(null, results.filter(Boolean));
-        }
-    });
-}
-
-function doUpdate(names, basedir, cb) {
-    getUpdateUrls(names, basedir, function(err, urls) {
-        if(err) {
-            cb(err);
-        } else {
-            npm.load( { loaded: false }, function(err) {
-                if(err) {
-                    cb(err);
-                } else {
-                    npm.on('log', console.log.bind(console));
-                    if(urls.length > 0) {
-                        npm.commands.install(urls, cb);
-                    } else {
-                        cb();
+    async.seq(
+        function(cb) {
+            var pkgpath = path.join(basedir, 'package.json');
+            return cb(null, pkgpath);
+        },
+        asyncReadFile,
+        asyncParseJSON,
+        function(pkg, cb) { // pkg -> name@version
+            async.map(names, function(name, cb) { 
+                if(pkg.dependencies !== undefined) {
+                    if(name in pkg.dependencies) {
+                        return cb(null, name + "@" + pkg.dependencies[name]);
                     }
                 }
+                if(pkg.devDependencies !== undefined) {
+                    if(name in pkg.devDependencies) {
+                        return cb(null, name + "@" + pkg.devDependencies[name]);
+                    }
+                }
+                return cb(new Error("Can't find dependency `" + name + "`"));
+            }, cb);
+        },
+        function(deps, cb) { // name@version -> npa
+            async.map(deps, function(dep, cb) {
+                var analyzed = npa(dep);
+                analyzed.basedir = basedir;
+                return cb(null, analyzed);
+            }, cb);
+        },
+        function(deps, cb) {
+            async.filter(deps, function(dep, cb) {
+                switch(dep.type) {
+                    case "github":
+                    case "git": 
+                        return cb(true);
+                }
+                return cb(false);
+            }, function(filtered) {
+                return cb(null, filtered);
+            });
+        },
+        function(deps, cb) {
+            async.map(deps, function(dep, cb) {
+                getUpdateUrl(dep, cb);
+            }, cb);
+        },
+        function(urls, cb) {
+            async.filter(urls, function(url, cb) {
+                return cb(url !== null);
+            }, function(filtered) {
+                return cb(null, filtered);
             });
         }
+    )(cb);
+}
+
+function update(names, basedir, cb) {
+    getUpdateUrls(names, basedir, function(err, urls) {
+        if(err) {
+            return cb(err);
+        }
+        npm.load( { loaded: false }, function(err) {
+            if(err) {
+                return cb(err);
+            }
+            npm.on('log', console.log.bind(console));
+            if(urls.length > 0) {
+                npm.commands.install(urls, cb);
+            } else {
+                return cb();
+            }
+        });
     });
 }
 
-exports.doUpdate = doUpdate;
+exports.update = update;
 exports.getUpdateUrl = getUpdateUrl;
 exports.getUpdateUrls = getUpdateUrls;
