@@ -159,6 +159,6 @@ function update(names, basedir, cb) {
     });
 }
 
-exports.update = update;
-exports.getUpdateUrl = getUpdateUrl;
-exports.getUpdateUrls = getUpdateUrls;
+module.exports = update;
+module.exports.getUpdateUrl = getUpdateUrl;
+module.exports.getUpdateUrls = getUpdateUrls;

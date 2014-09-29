@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 var fs = require('fs');
-var core = require('../index');
+var update = require('../index');
 
 var pkg = JSON.parse(fs.readFileSync('package.json'));
 var dependencies = Object.keys(pkg.dependencies);
 
-core.doUpdate(dependencies, process.cwd(), function(err) {
+update(dependencies, process.cwd(), function(err) {
     if(err) {
         console.error(err);
     }
